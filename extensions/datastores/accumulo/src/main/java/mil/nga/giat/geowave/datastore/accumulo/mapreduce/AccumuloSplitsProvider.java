@@ -141,9 +141,15 @@ public class AccumuloSplitsProvider extends
 		TabletLocator tl;
 		try {
 			final Instance instance = accumuloOperations.getInstance();
-			final String tableId = Tables.getTableId(
-					instance,
-					tableName);
+			final String tableId;
+			if (instance instanceof MockInstance) {
+				tableId = "";
+			}
+			else {
+				tableId = Tables.getTableId(
+				instance,
+				tableName);
+			}
 
 			final Credentials credentials = new Credentials(
 					accumuloOperations.getUsername(),
