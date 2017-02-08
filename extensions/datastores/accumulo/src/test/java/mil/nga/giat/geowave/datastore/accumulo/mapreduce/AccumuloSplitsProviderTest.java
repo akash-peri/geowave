@@ -26,7 +26,6 @@ import mil.nga.giat.geowave.core.geotime.store.query.SpatialQuery;
 import mil.nga.giat.geowave.core.geotime.store.statistics.BoundingBoxDataStatistics;
 import mil.nga.giat.geowave.core.index.ByteArrayId;
 import mil.nga.giat.geowave.core.store.EntryVisibilityHandler;
-import mil.nga.giat.geowave.core.store.StoreFactoryOptions;
 import mil.nga.giat.geowave.core.store.adapter.AbstractDataAdapter;
 import mil.nga.giat.geowave.core.store.adapter.AdapterIndexMappingStore;
 import mil.nga.giat.geowave.core.store.adapter.NativeFieldHandler;
@@ -51,15 +50,14 @@ import mil.nga.giat.geowave.datastore.accumulo.AccumuloOperations;
 import mil.nga.giat.geowave.datastore.accumulo.BasicAccumuloOperations;
 import mil.nga.giat.geowave.datastore.accumulo.index.secondary.AccumuloSecondaryIndexDataStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloAdapterIndexMappingStore;
-import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloAdapterIndexMappingStoreFactory;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloAdapterStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloDataStatisticsStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloIndexStore;
 import mil.nga.giat.geowave.datastore.accumulo.operations.config.AccumuloOptions;
-import mil.nga.giat.geowave.datastore.accumulo.operations.config.AccumuloRequiredOptions;
 import mil.nga.giat.geowave.mapreduce.splits.SplitsProvider;
 
-public class AccumuloSplitsProviderTest {
+public class AccumuloSplitsProviderTest
+{
 	private final static Logger LOGGER = Logger.getLogger(AccumuloSplitsProviderTest.class);
 
 	final AccumuloOptions accumuloOptions = new AccumuloOptions();
@@ -70,6 +68,7 @@ public class AccumuloSplitsProviderTest {
 	AccumuloDataStatisticsStore statsStore;
 	AccumuloDataStore mockDataStore;
 	AccumuloSecondaryIndexDataStore secondaryIndexDataStore;
+	AdapterIndexMappingStore adapterIndexMappingStore;
 	SplitsProvider splitsProvider;
 
 	/**
@@ -88,22 +87,43 @@ public class AccumuloSplitsProviderTest {
 		final MockInstance mockInstance = new MockInstance();
 		Connector mockConnector = null;
 		try {
-			mockConnector = mockInstance.getConnector("root", new PasswordToken(new byte[0]));
-		} catch (AccumuloException | AccumuloSecurityException e) {
-			LOGGER.error("Failed to create mock accumulo connection", e);
+			mockConnector = mockInstance.getConnector(
+					"root",
+					new PasswordToken(
+							new byte[0]));
 		}
-		accumuloOperations = new BasicAccumuloOperations(mockConnector);
+		catch (AccumuloException | AccumuloSecurityException e) {
+			LOGGER.error(
+					"Failed to create mock accumulo connection",
+					e);
+		}
+		accumuloOperations = new BasicAccumuloOperations(
+				mockConnector);
 
-		indexStore = new AccumuloIndexStore(accumuloOperations);
+		indexStore = new AccumuloIndexStore(
+				accumuloOperations);
 
-		adapterStore = new AccumuloAdapterStore(accumuloOperations);
+		adapterStore = new AccumuloAdapterStore(
+				accumuloOperations);
 
-		statsStore = new AccumuloDataStatisticsStore(accumuloOperations);
+		statsStore = new AccumuloDataStatisticsStore(
+				accumuloOperations);
 
-		secondaryIndexDataStore = new AccumuloSecondaryIndexDataStore(accumuloOperations, new AccumuloOptions());
+		secondaryIndexDataStore = new AccumuloSecondaryIndexDataStore(
+				accumuloOperations,
+				new AccumuloOptions());
 
-		mockDataStore = new AccumuloDataStore(indexStore, adapterStore, statsStore, secondaryIndexDataStore,
-				new AccumuloAdapterIndexMappingStore(accumuloOperations), accumuloOperations, accumuloOptions);
+		adapterIndexMappingStore = new AccumuloAdapterIndexMappingStore(
+				accumuloOperations);
+
+		mockDataStore = new AccumuloDataStore(
+				indexStore,
+				adapterStore,
+				statsStore,
+				secondaryIndexDataStore,
+				adapterIndexMappingStore,
+				accumuloOperations,
+				accumuloOptions);
 		splitsProvider = new AccumuloSplitsProvider();
 	}
 
@@ -111,15 +131,6 @@ public class AccumuloSplitsProviderTest {
 	public void testPopulateIntermediateSplitsBasic() {
 		final PrimaryIndex index = new SpatialDimensionalityTypeProvider().createPrimaryIndex();
 		final WritableDataAdapter<TestGeometry> adapter = new TestGeometryAdapter();
-		final AccumuloAdapterIndexMappingStoreFactory adapterIndexMappingStoreFactory = new AccumuloAdapterIndexMappingStoreFactory();
-		final AccumuloRequiredOptions adapterStoreFactoryOptions = (AccumuloRequiredOptions) adapterIndexMappingStoreFactory.createOptionsInstance();
-		adapterStoreFactoryOptions.setInstance("instance");
-		adapterStoreFactoryOptions.setZookeeper("zookeeper");
-		adapterStoreFactoryOptions.setUser("user");
-		adapterStoreFactoryOptions.setPassword("password");
-		//this fails; look for a way to mock this out
-		//specifically, mock out the store with mockito...
-		final AdapterIndexMappingStore adapterIndexMappingStore = adapterIndexMappingStoreFactory.createStore(adapterStoreFactoryOptions);
 
 		final Geometry testGeoFilter = factory.createPolygon(new Coordinate[] {
 			new Coordinate(
@@ -140,23 +151,27 @@ public class AccumuloSplitsProviderTest {
 		});
 		final SpatialQuery query = new SpatialQuery(
 				testGeoFilter);
-				
 		try {
-			splitsProvider.getSplits(accumuloOperations, 
+			splitsProvider.getSplits(
+					accumuloOperations,
 					query,
 					new QueryOptions(
-						adapter, 
-						index, 
-						-1, 
-						null, 
-						new String[] { "aaa", "bbb" }), 
-					adapterStore, 
+							adapter,
+							index,
+							-1,
+							null,
+							new String[] {
+								"aaa",
+								"bbb"
+							}),
+					adapterStore,
 					statsStore,
-					indexStore, 
-					adapterIndexMappingStore, 
-					1, 
+					indexStore,
+					adapterIndexMappingStore,
+					1,
 					5);
-		} catch (IOException | InterruptedException e) {
+		}
+		catch (IOException | InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
@@ -167,38 +182,54 @@ public class AccumuloSplitsProviderTest {
 		fail("Not yet implemented");
 	}
 
-	protected static class TestGeometry {
+	protected static class TestGeometry
+	{
 		private final Geometry geom;
 		private final String id;
 
-		public TestGeometry(final Geometry geom, final String id) {
+		public TestGeometry(
+				final Geometry geom,
+				final String id ) {
 			this.geom = geom;
 			this.id = id;
 		}
 	}
 
-	protected static class TestGeometryAdapter extends AbstractDataAdapter<TestGeometry>
-			implements StatisticsProvider<TestGeometry> {
-		private static final ByteArrayId GEOM = new ByteArrayId("myGeo");
-		private static final ByteArrayId ID = new ByteArrayId("myId");
+	protected static class TestGeometryAdapter extends
+			AbstractDataAdapter<TestGeometry> implements
+			StatisticsProvider<TestGeometry>
+	{
+		private static final ByteArrayId GEOM = new ByteArrayId(
+				"myGeo");
+		private static final ByteArrayId ID = new ByteArrayId(
+				"myId");
 
 		private static final PersistentIndexFieldHandler<TestGeometry, ? extends CommonIndexValue, Object> GEOM_FIELD_HANDLER = new PersistentIndexFieldHandler<TestGeometry, CommonIndexValue, Object>() {
 
 			@Override
 			public ByteArrayId[] getNativeFieldIds() {
-				return new ByteArrayId[] { GEOM };
+				return new ByteArrayId[] {
+					GEOM
+				};
 			}
 
 			@Override
-			public CommonIndexValue toIndexValue(final TestGeometry row) {
-				return new GeometryWrapper(row.geom, new byte[0]);
+			public CommonIndexValue toIndexValue(
+					final TestGeometry row ) {
+				return new GeometryWrapper(
+						row.geom,
+						new byte[0]);
 			}
 
 			@SuppressWarnings("unchecked")
 			@Override
-			public PersistentValue<Object>[] toNativeValues(final CommonIndexValue indexValue) {
+			public PersistentValue<Object>[] toNativeValues(
+					final CommonIndexValue indexValue ) {
 				return new PersistentValue[] {
-						new PersistentValue<Object>(GEOM, ((GeometryWrapper) indexValue).getGeometry()) };
+					new PersistentValue<Object>(
+							GEOM,
+							((GeometryWrapper) indexValue).getGeometry())
+				};
 			}
 
 			@Override
@@ -207,7 +238,8 @@ public class AccumuloSplitsProviderTest {
 			}
 
 			@Override
-			public void fromBinary(final byte[] bytes) {
+			public void fromBinary(
+					final byte[] bytes ) {
 
 			}
 		};
@@ -222,7 +254,8 @@ public class AccumuloSplitsProviderTest {
 			}
 
 			@Override
-			public Object getFieldValue(final TestGeometry row) {
+			public Object getFieldValue(
+					final TestGeometry row ) {
 				return row.id;
 			}
 
@@ -237,58 +270,75 @@ public class AccumuloSplitsProviderTest {
 		}
 
 		public TestGeometryAdapter() {
-			super(COMMON_FIELD_HANDLER_LIST, NATIVE_FIELD_HANDLER_LIST);
+			super(
+					COMMON_FIELD_HANDLER_LIST,
+					NATIVE_FIELD_HANDLER_LIST);
 		}
 
 		@Override
 		public ByteArrayId getAdapterId() {
-			return new ByteArrayId("test");
+			return new ByteArrayId(
+					"test");
 		}
 
 		@Override
-		public boolean isSupported(final TestGeometry entry) {
+		public boolean isSupported(
+				final TestGeometry entry ) {
 			return true;
 		}
 
 		@Override
-		public ByteArrayId getDataId(final TestGeometry entry) {
-			return new ByteArrayId(entry.id);
+		public ByteArrayId getDataId(
+				final TestGeometry entry ) {
+			return new ByteArrayId(
+					entry.id);
 		}
 
 		@SuppressWarnings("unchecked")
 		@Override
-		public FieldReader getReader(final ByteArrayId fieldId) {
+		public FieldReader getReader(
+				final ByteArrayId fieldId ) {
 			if (fieldId.equals(GEOM)) {
 				return FieldUtils.getDefaultReaderForClass(Geometry.class);
-			} else if (fieldId.equals(ID)) {
+			}
+			else if (fieldId.equals(ID)) {
 				return FieldUtils.getDefaultReaderForClass(String.class);
 			}
 			return null;
 		}
 
 		@Override
-		public FieldWriter getWriter(final ByteArrayId fieldId) {
+		public FieldWriter getWriter(
+				final ByteArrayId fieldId ) {
 			if (fieldId.equals(GEOM)) {
 				return FieldUtils.getDefaultWriterForClass(Geometry.class);
-			} else if (fieldId.equals(ID)) {
+			}
+			else if (fieldId.equals(ID)) {
 				return FieldUtils.getDefaultWriterForClass(String.class);
 			}
 			return null;
 		}
 
 		@Override
-		public DataStatistics<TestGeometry> createDataStatistics(final ByteArrayId statisticsId) {
+		public DataStatistics<TestGeometry> createDataStatistics(
+				final ByteArrayId statisticsId ) {
 			if (BoundingBoxDataStatistics.STATS_ID.equals(statisticsId)) {
-				return new GeoBoundingBoxStatistics(getAdapterId());
-			} else if (CountDataStatistics.STATS_ID.equals(statisticsId)) {
-				return new CountDataStatistics<TestGeometry>(getAdapterId());
+				return new GeoBoundingBoxStatistics(
+						getAdapterId());
+			}
+			else if (CountDataStatistics.STATS_ID.equals(statisticsId)) {
+				return new CountDataStatistics<TestGeometry>(
+						getAdapterId());
 			}
 			LOGGER.warn("Unrecognized statistics ID " + statisticsId.getString() + " using count statistic");
-			return new CountDataStatistics<TestGeometry>(getAdapterId(), statisticsId);
+			return new CountDataStatistics<TestGeometry>(
+					getAdapterId(),
+					statisticsId);
 		}
 
 		@Override
-		public EntryVisibilityHandler<TestGeometry> getVisibilityHandler(final ByteArrayId statisticsId) {
+		public EntryVisibilityHandler<TestGeometry> getVisibilityHandler(
+				final ByteArrayId statisticsId ) {
 			return GEOMETRY_VISIBILITY_HANDLER;
 		}
 
@@ -299,17 +349,24 @@ public class AccumuloSplitsProviderTest {
 				private Geometry geom;
 
 				@Override
-				public void setField(final PersistentValue<Object> fieldValue) {
-					if (fieldValue.getId().equals(GEOM)) {
+				public void setField(
+						final PersistentValue<Object> fieldValue ) {
+					if (fieldValue.getId().equals(
+							GEOM)) {
 						geom = (Geometry) fieldValue.getValue();
-					} else if (fieldValue.getId().equals(ID)) {
+					}
+					else if (fieldValue.getId().equals(
+							ID)) {
 						id = (String) fieldValue.getValue();
 					}
 				}
 
 				@Override
-				public TestGeometry buildRow(final ByteArrayId dataId) {
-					return new TestGeometry(geom, id);
+				public TestGeometry buildRow(
+						final ByteArrayId dataId ) {
+					return new TestGeometry(
+							geom,
+							id);
 				}
 			};
 		}
@@ -320,7 +377,9 @@ public class AccumuloSplitsProviderTest {
 		}
 
 		@Override
-		public int getPositionOfOrderedField(final CommonIndexModel model, final ByteArrayId fieldId) {
+		public int getPositionOfOrderedField(
+				final CommonIndexModel model,
+				final ByteArrayId fieldId ) {
 			int i = 0;
 			for (final NumericDimensionField<? extends CommonIndexValue> dimensionField : model.getDimensions()) {
 				if (fieldId.equals(dimensionField.getFieldId())) {
@@ -330,14 +389,17 @@ public class AccumuloSplitsProviderTest {
 			}
 			if (fieldId.equals(GEOM)) {
 				return i;
-			} else if (fieldId.equals(ID)) {
+			}
+			else if (fieldId.equals(ID)) {
 				return i + 1;
 			}
 			return -1;
 		}
 
 		@Override
-		public ByteArrayId getFieldIdForPosition(final CommonIndexModel model, final int position) {
+		public ByteArrayId getFieldIdForPosition(
+				final CommonIndexModel model,
+				final int position ) {
 			if (position < model.getDimensions().length) {
 				int i = 0;
 				for (final NumericDimensionField<? extends CommonIndexValue> dimensionField : model.getDimensions()) {
@@ -346,11 +408,13 @@ public class AccumuloSplitsProviderTest {
 					}
 					i++;
 				}
-			} else {
+			}
+			else {
 				final int numDimensions = model.getDimensions().length;
 				if (position == numDimensions) {
 					return GEOM;
-				} else if (position == (numDimensions + 1)) {
+				}
+				else if (position == (numDimensions + 1)) {
 					return ID;
 				}
 			}
@@ -358,22 +422,29 @@ public class AccumuloSplitsProviderTest {
 		}
 	}
 
-	private final static ByteArrayId[] SUPPORTED_STATS_IDS = new ByteArrayId[] { BoundingBoxDataStatistics.STATS_ID,
-			CountDataStatistics.STATS_ID };
+	private final static ByteArrayId[] SUPPORTED_STATS_IDS = new ByteArrayId[] {
+		BoundingBoxDataStatistics.STATS_ID,
+		CountDataStatistics.STATS_ID
+	};
 
-	private static class GeoBoundingBoxStatistics extends BoundingBoxDataStatistics<TestGeometry> {
+	private static class GeoBoundingBoxStatistics extends
+			BoundingBoxDataStatistics<TestGeometry>
+	{
 
 		@SuppressWarnings("unused")
 		protected GeoBoundingBoxStatistics() {
 			super();
 		}
 
-		public GeoBoundingBoxStatistics(final ByteArrayId dataAdapterId) {
-			super(dataAdapterId);
+		public GeoBoundingBoxStatistics(
+				final ByteArrayId dataAdapterId ) {
+			super(
+					dataAdapterId);
 		}
 
 		@Override
-		protected Envelope getEnvelope(final TestGeometry entry) {
+		protected Envelope getEnvelope(
+				final TestGeometry entry ) {
 			// incorporate the bounding box of the entry's envelope
 			final Geometry geometry = entry.geom;
 			if ((geometry != null) && !geometry.isEmpty()) {
