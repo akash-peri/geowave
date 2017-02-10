@@ -1,6 +1,11 @@
 package mil.nga.giat.geowave.datastore.accumulo.mapreduce;
 
-import static org.junit.Assert.fail;
+import static org.hamcrest.CoreMatchers.is;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -9,8 +14,11 @@ import java.util.List;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.Connector;
+import org.apache.accumulo.core.client.TableNotFoundException;
+import org.apache.accumulo.core.client.impl.TabletLocator;
 import org.apache.accumulo.core.client.mock.MockInstance;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.log4j.Logger;
 import org.junit.Before;
 import org.junit.Test;
@@ -25,6 +33,7 @@ import mil.nga.giat.geowave.core.geotime.store.dimension.GeometryWrapper;
 import mil.nga.giat.geowave.core.geotime.store.query.SpatialQuery;
 import mil.nga.giat.geowave.core.geotime.store.statistics.BoundingBoxDataStatistics;
 import mil.nga.giat.geowave.core.index.ByteArrayId;
+import mil.nga.giat.geowave.core.store.DataStoreOperations;
 import mil.nga.giat.geowave.core.store.EntryVisibilityHandler;
 import mil.nga.giat.geowave.core.store.adapter.AbstractDataAdapter;
 import mil.nga.giat.geowave.core.store.adapter.AdapterIndexMappingStore;
@@ -69,7 +78,10 @@ public class AccumuloSplitsProviderTest
 	AccumuloDataStore mockDataStore;
 	AccumuloSecondaryIndexDataStore secondaryIndexDataStore;
 	AdapterIndexMappingStore adapterIndexMappingStore;
-	SplitsProvider splitsProvider;
+	static TabletLocator tabletLocator;
+	PrimaryIndex index;
+	WritableDataAdapter<TestGeometry> adapter;
+	Geometry testGeoFilter;
 
 	/**
 	 * public List<InputSplit> getSplits(
@@ -124,15 +136,11 @@ public class AccumuloSplitsProviderTest
 				adapterIndexMappingStore,
 				accumuloOperations,
 				accumuloOptions);
-		splitsProvider = new AccumuloSplitsProvider();
-	}
+		
+		index = new SpatialDimensionalityTypeProvider().createPrimaryIndex();
+		adapter = new TestGeometryAdapter();
 
-	@Test
-	public void testPopulateIntermediateSplitsBasic() {
-		final PrimaryIndex index = new SpatialDimensionalityTypeProvider().createPrimaryIndex();
-		final WritableDataAdapter<TestGeometry> adapter = new TestGeometryAdapter();
-
-		final Geometry testGeoFilter = factory.createPolygon(new Coordinate[] {
+		testGeoFilter = factory.createPolygon(new Coordinate[] {
 			new Coordinate(
 					24,
 					33),
@@ -149,10 +157,20 @@ public class AccumuloSplitsProviderTest
 					24,
 					33)
 		});
+	}
+
+	@Test
+	public void testPopulateIntermediateSplitsEmptyRange() {
 		final SpatialQuery query = new SpatialQuery(
 				testGeoFilter);
+		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider() {
+			@Override
+			public void addMocks() {
+				doNothing().when(tabletLocator).invalidateCache();
+			}
+		};
 		try {
-			splitsProvider.getSplits(
+			List<InputSplit> splits = splitsProvider.getSplits(
 					accumuloOperations,
 					query,
 					new QueryOptions(
@@ -170,16 +188,61 @@ public class AccumuloSplitsProviderTest
 					adapterIndexMappingStore,
 					1,
 					5);
+			verify(tabletLocator);
+		}
+		catch (IOException | InterruptedException e) {
+			e.printStackTrace();
+			assertFalse("Not expecting an error", true);
+		}
+	}
+	
+	/**
+	 * Used to simulate what happens if an HBase operations for instance gets passed in
+	 * @author akash_000
+	 *
+	 */
+	private static class MockOperations implements DataStoreOperations {
+		public boolean tableExists(String altIdxTableName) throws IOException { return false; }
+		public void deleteAll() throws Exception {}
+		public String getTableNameSpace() { return null; }
+	}
+	
+	@Test
+	public void testPopulateIntermediateSplitsMismatchedOperations() {
+		final SpatialQuery query = new SpatialQuery(
+				testGeoFilter);
+		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider() {
+			@Override
+			public void addMocks() {
+				//no mocks
+			}
+		};
+		try {
+			List<InputSplit> splits = splitsProvider.getSplits(
+					new MockOperations(),
+					query,
+					new QueryOptions(
+							adapter,
+							index,
+							-1,
+							null,
+							new String[] {
+								"aaa",
+								"bbb"
+							}),
+					adapterStore,
+					statsStore,
+					indexStore,
+					adapterIndexMappingStore,
+					1,
+					5);
+			assertThat(splits.isEmpty(), is(true));
+			//no need to verify mock here, no actions taken on it
 		}
 		catch (IOException | InterruptedException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-	}
-
-	@Test
-	public void test() {
-		fail("Not yet implemented");
 	}
 
 	protected static class TestGeometry
@@ -322,11 +385,11 @@ public class AccumuloSplitsProviderTest
 		@Override
 		public DataStatistics<TestGeometry> createDataStatistics(
 				final ByteArrayId statisticsId ) {
-			if (BoundingBoxDataStatistics.STATS_ID.equals(statisticsId)) {
+			if (BoundingBoxDataStatistics.STATS_TYPE.equals(statisticsId)) {
 				return new GeoBoundingBoxStatistics(
 						getAdapterId());
 			}
-			else if (CountDataStatistics.STATS_ID.equals(statisticsId)) {
+			else if (CountDataStatistics.STATS_TYPE.equals(statisticsId)) {
 				return new CountDataStatistics<TestGeometry>(
 						getAdapterId());
 			}
@@ -372,7 +435,7 @@ public class AccumuloSplitsProviderTest
 		}
 
 		@Override
-		public ByteArrayId[] getSupportedStatisticsIds() {
+		public ByteArrayId[] getSupportedStatisticsTypes() {
 			return SUPPORTED_STATS_IDS;
 		}
 
@@ -423,8 +486,8 @@ public class AccumuloSplitsProviderTest
 	}
 
 	private final static ByteArrayId[] SUPPORTED_STATS_IDS = new ByteArrayId[] {
-		BoundingBoxDataStatistics.STATS_ID,
-		CountDataStatistics.STATS_ID
+		BoundingBoxDataStatistics.STATS_TYPE,
+		CountDataStatistics.STATS_TYPE
 	};
 
 	private static class GeoBoundingBoxStatistics extends
@@ -453,5 +516,23 @@ public class AccumuloSplitsProviderTest
 			return null;
 		}
 
+	}
+	
+	private abstract static class MockAccumuloSplitsProvider extends AccumuloSplitsProvider {
+		public abstract void addMocks();
+		/**
+		 * Return a mocked out TabletLocator to avoid having to look up a TabletLocator, which fails
+		 *
+		 */
+		@Override
+		protected TabletLocator getTabletLocator(
+				final Object clientContextOrInstance,
+				final String tableId )
+				throws TableNotFoundException {
+
+			tabletLocator = mock(TabletLocator.class);
+			addMocks();
+			return tabletLocator;
+		}
 	}
 }
