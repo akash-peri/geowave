@@ -19,6 +19,7 @@ import org.apache.accumulo.core.client.TableOfflineException;
 import org.apache.accumulo.core.client.impl.Tables;
 import org.apache.accumulo.core.client.impl.TabletLocator;
 import org.apache.accumulo.core.client.mock.MockInstance;
+import org.apache.accumulo.core.client.security.tokens.NullToken;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
@@ -142,19 +143,23 @@ public class AccumuloSplitsProvider extends
 		try {
 			final Instance instance = accumuloOperations.getInstance();
 			final String tableId;
+			Credentials credentials;
 			if (instance instanceof MockInstance) {
 				tableId = "";
+				//in this case, we will have no password;
+				credentials = new Credentials(
+						accumuloOperations.getUsername(),
+						new NullToken());
 			}
 			else {
 				tableId = Tables.getTableId(
 				instance,
 				tableName);
+				credentials = new Credentials(
+						accumuloOperations.getUsername(),
+						new PasswordToken(
+								accumuloOperations.getPassword()));
 			}
-
-			final Credentials credentials = new Credentials(
-					accumuloOperations.getUsername(),
-					new PasswordToken(
-							accumuloOperations.getPassword()));
 
 			// @formatter:off
 				/*if[accumulo.api=1.6]
@@ -347,7 +352,7 @@ public class AccumuloSplitsProvider extends
 	 *             if the table name set on the configuration doesn't exist
 	 *
 	 */
-	protected static TabletLocator getTabletLocator(
+	protected TabletLocator getTabletLocator(
 			final Object clientContextOrInstance,
 			final String tableId )
 			throws TableNotFoundException {
