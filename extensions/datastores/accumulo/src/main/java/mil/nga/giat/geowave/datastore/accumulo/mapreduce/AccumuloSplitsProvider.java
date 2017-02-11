@@ -146,15 +146,15 @@ public class AccumuloSplitsProvider extends
 			Credentials credentials;
 			if (instance instanceof MockInstance) {
 				tableId = "";
-				//in this case, we will have no password;
+				// in this case, we will have no password;
 				credentials = new Credentials(
 						accumuloOperations.getUsername(),
 						new NullToken());
 			}
 			else {
 				tableId = Tables.getTableId(
-				instance,
-				tableName);
+						instance,
+						tableName);
 				credentials = new Credentials(
 						accumuloOperations.getUsername(),
 						new PasswordToken(
