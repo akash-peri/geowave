@@ -18,6 +18,7 @@ import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.impl.TabletLocator;
 import org.apache.accumulo.core.client.mock.MockInstance;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.accumulo.core.data.Range;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.log4j.Logger;
 import org.junit.Before;
@@ -37,12 +38,14 @@ import mil.nga.giat.geowave.core.store.DataStoreOperations;
 import mil.nga.giat.geowave.core.store.EntryVisibilityHandler;
 import mil.nga.giat.geowave.core.store.adapter.AbstractDataAdapter;
 import mil.nga.giat.geowave.core.store.adapter.AdapterIndexMappingStore;
+import mil.nga.giat.geowave.core.store.adapter.AdapterStore;
 import mil.nga.giat.geowave.core.store.adapter.NativeFieldHandler;
 import mil.nga.giat.geowave.core.store.adapter.NativeFieldHandler.RowBuilder;
 import mil.nga.giat.geowave.core.store.adapter.PersistentIndexFieldHandler;
 import mil.nga.giat.geowave.core.store.adapter.WritableDataAdapter;
 import mil.nga.giat.geowave.core.store.adapter.statistics.CountDataStatistics;
 import mil.nga.giat.geowave.core.store.adapter.statistics.DataStatistics;
+import mil.nga.giat.geowave.core.store.adapter.statistics.DataStatisticsStore;
 import mil.nga.giat.geowave.core.store.adapter.statistics.FieldTypeStatisticVisibility;
 import mil.nga.giat.geowave.core.store.adapter.statistics.StatisticsProvider;
 import mil.nga.giat.geowave.core.store.data.PersistentValue;
@@ -52,6 +55,7 @@ import mil.nga.giat.geowave.core.store.data.field.FieldWriter;
 import mil.nga.giat.geowave.core.store.dimension.NumericDimensionField;
 import mil.nga.giat.geowave.core.store.index.CommonIndexModel;
 import mil.nga.giat.geowave.core.store.index.CommonIndexValue;
+import mil.nga.giat.geowave.core.store.index.Index;
 import mil.nga.giat.geowave.core.store.index.PrimaryIndex;
 import mil.nga.giat.geowave.core.store.query.QueryOptions;
 import mil.nga.giat.geowave.datastore.accumulo.AccumuloDataStore;
@@ -63,6 +67,7 @@ import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloAdapterStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloDataStatisticsStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloIndexStore;
 import mil.nga.giat.geowave.datastore.accumulo.operations.config.AccumuloOptions;
+import mil.nga.giat.geowave.mapreduce.splits.GeoWaveRowRange;
 import mil.nga.giat.geowave.mapreduce.splits.SplitsProvider;
 
 public class AccumuloSplitsProviderTest
@@ -78,7 +83,7 @@ public class AccumuloSplitsProviderTest
 	AccumuloDataStore mockDataStore;
 	AccumuloSecondaryIndexDataStore secondaryIndexDataStore;
 	AdapterIndexMappingStore adapterIndexMappingStore;
-	static TabletLocator tabletLocator;
+	TabletLocator tabletLocator;
 	PrimaryIndex index;
 	WritableDataAdapter<TestGeometry> adapter;
 	Geometry testGeoFilter;
@@ -136,9 +141,11 @@ public class AccumuloSplitsProviderTest
 				adapterIndexMappingStore,
 				accumuloOperations,
 				accumuloOptions);
-		
+
 		index = new SpatialDimensionalityTypeProvider().createPrimaryIndex();
 		adapter = new TestGeometryAdapter();
+
+		tabletLocator = mock(TabletLocator.class);
 
 		testGeoFilter = factory.createPolygon(new Coordinate[] {
 			new Coordinate(
@@ -160,13 +167,15 @@ public class AccumuloSplitsProviderTest
 	}
 
 	@Test
-	public void testPopulateIntermediateSplitsEmptyRange() {
+	public void testPopulateIntermediateSplits_EmptyRange() {
 		final SpatialQuery query = new SpatialQuery(
 				testGeoFilter);
-		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider() {
+		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider(
+				tabletLocator) {
 			@Override
 			public void addMocks() {
-				doNothing().when(tabletLocator).invalidateCache();
+				doNothing().when(
+						tabletLocator).invalidateCache();
 			}
 		};
 		try {
@@ -188,33 +197,50 @@ public class AccumuloSplitsProviderTest
 					adapterIndexMappingStore,
 					1,
 					5);
-			verify(tabletLocator);
+			verify(
+					tabletLocator).invalidateCache();
 		}
 		catch (IOException | InterruptedException e) {
 			e.printStackTrace();
-			assertFalse("Not expecting an error", true);
+			assertFalse(
+					"Not expecting an error",
+					true);
 		}
 	}
-	
+
 	/**
-	 * Used to simulate what happens if an HBase operations for instance gets passed in
+	 * Used to simulate what happens if an HBase operations for instance gets
+	 * passed in
+	 * 
 	 * @author akash_000
 	 *
 	 */
-	private static class MockOperations implements DataStoreOperations {
-		public boolean tableExists(String altIdxTableName) throws IOException { return false; }
-		public void deleteAll() throws Exception {}
-		public String getTableNameSpace() { return null; }
+	private static class MockOperations implements
+			DataStoreOperations
+	{
+		public boolean tableExists(
+				String altIdxTableName )
+				throws IOException {
+			return false;
+		}
+
+		public void deleteAll()
+				throws Exception {}
+
+		public String getTableNameSpace() {
+			return null;
+		}
 	}
-	
+
 	@Test
-	public void testPopulateIntermediateSplitsMismatchedOperations() {
+	public void testPopulateIntermediateSplits_MismatchedOperations() {
 		final SpatialQuery query = new SpatialQuery(
 				testGeoFilter);
-		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider() {
+		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider(
+				tabletLocator) {
 			@Override
 			public void addMocks() {
-				//no mocks
+				// no mocks
 			}
 		};
 		try {
@@ -236,8 +262,120 @@ public class AccumuloSplitsProviderTest
 					adapterIndexMappingStore,
 					1,
 					5);
-			assertThat(splits.isEmpty(), is(true));
-			//no need to verify mock here, no actions taken on it
+			assertThat(
+					splits.isEmpty(),
+					is(true));
+			// no need to verify mock here, no actions taken on it
+		}
+		catch (IOException | InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	@Test
+	public void testPopulateIntermediateSplits_UnsupportedQuery() {
+		final SpatialQuery query = new SpatialQuery(
+				testGeoFilter) {
+			@Override
+			public boolean isSupported(
+					final Index<?, ?> index ) {
+				return false;
+			}
+		};
+
+		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider(
+				tabletLocator) {
+			@Override
+			public void addMocks() {
+				// no mocks
+			}
+		};
+		try {
+			List<InputSplit> splits = splitsProvider.getSplits(
+					accumuloOperations,
+					query,
+					new QueryOptions(
+							adapter,
+							index,
+							-1,
+							null,
+							new String[] {
+								"aaa",
+								"bbb"
+							}),
+					adapterStore,
+					statsStore,
+					indexStore,
+					adapterIndexMappingStore,
+					1,
+					5);
+			// if query is unsupported, return an empty split, with no error
+			assertThat(
+					splits.isEmpty(),
+					is(true));
+			// no need to verify mock here, no actions taken on it
+		}
+		catch (IOException | InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	@Test
+	public void testPopulateIntermediateSplits_FillInRange() {
+		final SpatialQuery query = new SpatialQuery(
+				testGeoFilter);
+
+		final SplitsProvider splitsProvider = new MockAccumuloSplitsProvider(
+				tabletLocator,
+				new AccumuloRowRange(
+						new Range(
+								"aaa",
+								"bbbb"))) {
+			@Override
+			public void addMocks() {
+				doNothing().when(
+						tabletLocator).invalidateCache();
+			}
+		};
+		try {
+			// having trouble getting the statsStore to correctly return the
+			// ingested info
+			// this is because it can't find the table...
+			// for now, try mocking out that specific action
+			/*
+			 * final DataStatistics<?> stat = new CountDataStatistics<String>(
+			 * new ByteArrayId( "blah")); stat.entryIngested( null, null);
+			 * stat.entryIngested( null, null); stat.entryIngested( null, null);
+			 * statsStore.incorporateStatistics(stat);
+			 */
+
+			List<InputSplit> splits = splitsProvider.getSplits(
+					accumuloOperations,
+					query,
+					new QueryOptions(
+							adapter,
+							index,
+							-1,
+							null,
+							new String[] {
+								"aaa",
+								"bbb"
+							}),
+					adapterStore,
+					statsStore,
+					indexStore,
+					adapterIndexMappingStore,
+					1,
+					5);
+			verify(
+					tabletLocator).invalidateCache();
+			// verifyNoMoreInteractions(tabletLocator);
+			// if query is unsupported, return an empty split, with no error
+			// assertThat(
+			// splits.isEmpty(),
+			// is(true));
 		}
 		catch (IOException | InterruptedException e) {
 			// TODO Auto-generated catch block
@@ -517,11 +655,32 @@ public class AccumuloSplitsProviderTest
 		}
 
 	}
-	
-	private abstract static class MockAccumuloSplitsProvider extends AccumuloSplitsProvider {
+
+	private abstract static class MockAccumuloSplitsProvider extends
+			AccumuloSplitsProvider
+	{
+		private GeoWaveRowRange rangeMax;
+		private TabletLocator mockTabletLocator;
+
+		public MockAccumuloSplitsProvider(
+				TabletLocator tabletLocator ) {
+			super();
+			this.mockTabletLocator = tabletLocator;
+		}
+
+		public MockAccumuloSplitsProvider(
+				TabletLocator tabletLocator,
+				GeoWaveRowRange rangeMax ) {
+			super();
+			this.rangeMax = rangeMax;
+			this.mockTabletLocator = tabletLocator;
+		}
+
 		public abstract void addMocks();
+
 		/**
-		 * Return a mocked out TabletLocator to avoid having to look up a TabletLocator, which fails
+		 * Return a mocked out TabletLocator to avoid having to look up a
+		 * TabletLocator, which fails
 		 *
 		 */
 		@Override
@@ -529,10 +688,21 @@ public class AccumuloSplitsProviderTest
 				final Object clientContextOrInstance,
 				final String tableId )
 				throws TableNotFoundException {
-
-			tabletLocator = mock(TabletLocator.class);
 			addMocks();
-			return tabletLocator;
+			return mockTabletLocator;
 		}
+
+		/**
+		 * Returns a rangeMax, instead of going through the statistics store to
+		 * get it
+		 */
+		@Override
+		protected GeoWaveRowRange getRangeMax(
+				final Index<?, ?> index,
+				final AdapterStore adapterStore,
+				final DataStatisticsStore statsStore,
+				final String[] authorizations ) {
+			return this.rangeMax;
+		};
 	}
 }
