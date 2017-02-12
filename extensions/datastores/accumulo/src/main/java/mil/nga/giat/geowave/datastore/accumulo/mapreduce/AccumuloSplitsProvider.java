@@ -138,7 +138,7 @@ public class AccumuloSplitsProvider extends
 			}
 		}
 		// get the metadata information for these ranges
-		final Map<String, Map<KeyExtent, List<Range>>> tserverBinnedRanges = new HashMap<String, Map<KeyExtent, List<Range>>>();
+		final Map<String, Map<KeyExtent, List<Range>>> tserverBinnedRanges = getBinnedRangesStructure();
 		TabletLocator tl;
 		try {
 			final Instance instance = accumuloOperations.getInstance();
@@ -214,7 +214,7 @@ public class AccumuloSplitsProvider extends
 					e);
 		}
 
-		final HashMap<String, String> hostNameCache = new HashMap<String, String>();
+		final HashMap<String, String> hostNameCache = getHostNameCache();
 		for (final Entry<String, Map<KeyExtent, List<Range>>> tserverBin : tserverBinnedRanges.entrySet()) {
 			final String tabletServer = tserverBin.getKey();
 			final String ipAddress = tabletServer.split(
@@ -275,6 +275,24 @@ public class AccumuloSplitsProvider extends
 		}
 
 		return splits;
+	}
+
+	/**
+	 * Returns data structure to be filled by binnedRanges Extracted out to
+	 * facilitate testing
+	 */
+	public Map<String, Map<KeyExtent, List<Range>>> getBinnedRangesStructure() {
+		final Map<String, Map<KeyExtent, List<Range>>> tserverBinnedRanges = new HashMap<String, Map<KeyExtent, List<Range>>>();
+		return tserverBinnedRanges;
+	}
+
+	/**
+	 * Returns host name cache data structure Extracted out to facilitate
+	 * testing
+	 */
+	public HashMap<String, String> getHostNameCache() {
+		final HashMap<String, String> hostNameCache = new HashMap<String, String>();
+		return hostNameCache;
 	}
 
 	public static GeoWaveRowRange wrapRange(

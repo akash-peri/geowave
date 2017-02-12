@@ -3,22 +3,39 @@ package mil.nga.giat.geowave.datastore.accumulo.mapreduce;
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.client.TableNotFoundException;
+import org.apache.accumulo.core.client.impl.ClientContext;
 import org.apache.accumulo.core.client.impl.TabletLocator;
 import org.apache.accumulo.core.client.mock.MockInstance;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
+import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
+import org.apache.accumulo.core.data.impl.KeyExtent;
+import org.apache.accumulo.core.data.thrift.TKey;
+import org.apache.accumulo.core.data.thrift.TRange;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.log4j.Logger;
 import org.junit.Before;
@@ -39,6 +56,7 @@ import mil.nga.giat.geowave.core.store.EntryVisibilityHandler;
 import mil.nga.giat.geowave.core.store.adapter.AbstractDataAdapter;
 import mil.nga.giat.geowave.core.store.adapter.AdapterIndexMappingStore;
 import mil.nga.giat.geowave.core.store.adapter.AdapterStore;
+import mil.nga.giat.geowave.core.store.adapter.DataAdapter;
 import mil.nga.giat.geowave.core.store.adapter.NativeFieldHandler;
 import mil.nga.giat.geowave.core.store.adapter.NativeFieldHandler.RowBuilder;
 import mil.nga.giat.geowave.core.store.adapter.PersistentIndexFieldHandler;
@@ -47,6 +65,7 @@ import mil.nga.giat.geowave.core.store.adapter.statistics.CountDataStatistics;
 import mil.nga.giat.geowave.core.store.adapter.statistics.DataStatistics;
 import mil.nga.giat.geowave.core.store.adapter.statistics.DataStatisticsStore;
 import mil.nga.giat.geowave.core.store.adapter.statistics.FieldTypeStatisticVisibility;
+import mil.nga.giat.geowave.core.store.adapter.statistics.RowRangeHistogramStatistics;
 import mil.nga.giat.geowave.core.store.adapter.statistics.StatisticsProvider;
 import mil.nga.giat.geowave.core.store.data.PersistentValue;
 import mil.nga.giat.geowave.core.store.data.field.FieldReader;
@@ -57,6 +76,7 @@ import mil.nga.giat.geowave.core.store.index.CommonIndexModel;
 import mil.nga.giat.geowave.core.store.index.CommonIndexValue;
 import mil.nga.giat.geowave.core.store.index.Index;
 import mil.nga.giat.geowave.core.store.index.PrimaryIndex;
+import mil.nga.giat.geowave.core.store.query.DistributableQuery;
 import mil.nga.giat.geowave.core.store.query.QueryOptions;
 import mil.nga.giat.geowave.datastore.accumulo.AccumuloDataStore;
 import mil.nga.giat.geowave.datastore.accumulo.AccumuloOperations;
@@ -67,7 +87,9 @@ import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloAdapterStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloDataStatisticsStore;
 import mil.nga.giat.geowave.datastore.accumulo.metadata.AccumuloIndexStore;
 import mil.nga.giat.geowave.datastore.accumulo.operations.config.AccumuloOptions;
+import mil.nga.giat.geowave.mapreduce.splits.GeoWaveInputSplit;
 import mil.nga.giat.geowave.mapreduce.splits.GeoWaveRowRange;
+import mil.nga.giat.geowave.mapreduce.splits.IntermediateSplitInfo;
 import mil.nga.giat.geowave.mapreduce.splits.SplitsProvider;
 
 public class AccumuloSplitsProviderTest
@@ -87,6 +109,7 @@ public class AccumuloSplitsProviderTest
 	PrimaryIndex index;
 	WritableDataAdapter<TestGeometry> adapter;
 	Geometry testGeoFilter;
+	Map<PrimaryIndex, RowRangeHistogramStatistics<?>> statsCache;
 
 	/**
 	 * public List<InputSplit> getSplits(
@@ -164,6 +187,8 @@ public class AccumuloSplitsProviderTest
 					24,
 					33)
 		});
+
+		statsCache = new HashMap<PrimaryIndex, RowRangeHistogramStatistics<?>>();
 	}
 
 	@Test
@@ -323,7 +348,7 @@ public class AccumuloSplitsProviderTest
 	}
 
 	@Test
-	public void testPopulateIntermediateSplits_FillInRange() {
+	public void testPopulateIntermediateSplits_PrebuiltRange() {
 		final SpatialQuery query = new SpatialQuery(
 				testGeoFilter);
 
@@ -331,12 +356,238 @@ public class AccumuloSplitsProviderTest
 				tabletLocator,
 				new AccumuloRowRange(
 						new Range(
-								"aaa",
-								"bbbb"))) {
+								"aa",
+								"bb"))) {
 			@Override
 			public void addMocks() {
 				doNothing().when(
 						tabletLocator).invalidateCache();
+				try {
+					when(
+							tabletLocator.binRanges(
+									isA(ClientContext.class),
+									anyList(),
+									anyMap())).thenReturn(
+							new ArrayList<Range>());
+				}
+				catch (AccumuloException | AccumuloSecurityException | TableNotFoundException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+
+			@Override
+			/**
+			 * Build our own simple Binned Range Structure
+			 * Here is what it will look like:
+			 * 
+			 * Initial level: Map of String (tablet locations) to another Map
+			 * Second level: Map of KeyExtents (the difference between our previous range and current range) to Range lists
+			 * Third level: List of the range lists
+			 * 
+			 * This implementation will have two tablet locations (assumed to be two nodes), 4 KeyExtents per tablet location (3, 3, 3, 4) with the total range spanning a to z
+			 * @return
+			 */
+			public Map<String, Map<KeyExtent, List<Range>>> getBinnedRangesStructure() {
+
+				final Map<String, Map<KeyExtent, List<Range>>> tserverBinnedRanges = new HashMap<String, Map<KeyExtent, List<Range>>>();
+				Map<KeyExtent, List<Range>> keyExtents = new HashMap<KeyExtent, List<Range>>();
+				List<Range> ranges = new ArrayList<Range>();
+
+				// first tablet locator
+				tserverBinnedRanges.put(
+						"127.0.0.1:tabletLocator1",
+						new HashMap<KeyExtent, List<Range>>());
+				// second tablet locator
+				tserverBinnedRanges.put(
+						"127.0.0.2:tabletLocator2",
+						new HashMap<KeyExtent, List<Range>>());
+
+				final Text table = new Text(
+						"GEOWAVE_METADATA");
+				// key extents for first tablet locator
+				tserverBinnedRanges.get(
+						"127.0.0.1:tabletLocator1").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"ac"),
+								new Text(
+										"")),
+						Arrays.asList(
+								new Range(
+										"aa",
+										"ab"),
+								new Range(
+										"ab",
+										"ac")));
+				tserverBinnedRanges.get(
+						"127.0.0.1:tabletLocator1").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"af"),
+								new Text(
+										"ac")),
+						Arrays.asList(
+								new Range(
+										"ac",
+										"ad"),
+								new Range(
+										"ad",
+										"ae"),
+								new Range(
+										"ae",
+										"af")));
+				tserverBinnedRanges.get(
+						"127.0.0.1:tabletLocator1").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"ai"),
+								new Text(
+										"af")),
+						Arrays.asList(
+								new Range(
+										"af",
+										"ag"),
+								new Range(
+										"ag",
+										"ah"),
+								new Range(
+										"ah",
+										"ai")));
+				tserverBinnedRanges.get(
+						"127.0.0.1:tabletLocator1").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"am"),
+								new Text(
+										"ai")),
+						Arrays.asList(
+								new Range(
+										"ai",
+										"aj"),
+								new Range(
+										"aj",
+										"ak"),
+								new Range(
+										"ak",
+										"al"),
+								new Range(
+										"al",
+										"am")));
+
+				// key extents for second tablet locator
+				tserverBinnedRanges.get(
+						"127.0.0.2:tabletLocator2").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"ao"),
+								new Text(
+										"am")),
+						Arrays.asList(
+								new Range(
+										"am",
+										"an"),
+								new Range(
+										"an",
+										"ao")));
+				tserverBinnedRanges.get(
+						"127.0.0.2:tabletLocator2").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"ar"),
+								new Text(
+										"ao")),
+						Arrays.asList(
+								new Range(
+										"ao",
+										"ap"),
+								new Range(
+										"ap",
+										"aq"),
+								new Range(
+										"aq",
+										"ar")));
+				tserverBinnedRanges.get(
+						"127.0.0.2:tabletLocator2").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"au"),
+								new Text(
+										"ar")),
+						Arrays.asList(
+								new Range(
+										"ar",
+										"as"),
+								new Range(
+										"as",
+										"at"),
+								new Range(
+										"at",
+										"au")));
+				tserverBinnedRanges.get(
+						"127.0.0.2:tabletLocator2").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"ay"),
+								new Text(
+										"au")),
+						Arrays.asList(
+								new Range(
+										"au",
+										"av"),
+								new Range(
+										"av",
+										"aw"),
+								new Range(
+										"aw",
+										"ax"),
+								new Range(
+										"ax",
+										"ay")));
+				tserverBinnedRanges.get(
+						"127.0.0.2:tabletLocator2").put(
+						new KeyExtent(
+								table,
+								new Text(
+										"bb"),
+								new Text(
+										"ay")),
+						Arrays.asList(
+								new Range(
+										"ay",
+										"az"),
+								new Range(
+										"az",
+										"ba"),
+								new Range(
+										"ba",
+										"bb")));
+
+				return tserverBinnedRanges;
+			}
+
+			/**
+			 * Build our own host name cache, to avoid an unsuccessful lookup
+			 * Expect two tablets, just use default localhost ip
+			 */
+			@Override
+			public HashMap<String, String> getHostNameCache() {
+				final HashMap<String, String> hostNameCache = new HashMap<String, String>();
+				hostNameCache.put(
+						"127.0.0.1",
+						"tabletLocator1");
+				hostNameCache.put(
+						"127.0.0.2",
+						"tabletLocator2");
+				return hostNameCache;
 			}
 		};
 		try {
@@ -351,38 +602,126 @@ public class AccumuloSplitsProviderTest
 			 * statsStore.incorporateStatistics(stat);
 			 */
 
-			List<InputSplit> splits = splitsProvider.getSplits(
+			QueryOptions queryOptions = new QueryOptions(
+					adapter,
+					index,
+					-1,
+					null,
+					new String[] {
+						"aaa",
+						"bbb"
+					});
+
+			Pair<PrimaryIndex, List<DataAdapter<Object>>> indexAdapterPair = queryOptions
+					.getAdaptersWithMinimalSetOfIndices(
+							adapterStore,
+							adapterIndexMappingStore,
+							indexStore)
+					.get(
+							0);
+
+			TreeSet<IntermediateSplitInfo> splitsInput = new TreeSet<IntermediateSplitInfo>();
+			TreeSet<IntermediateSplitInfo> splitsOutput;
+
+			splitsOutput = ((MockAccumuloSplitsProvider) splitsProvider).populateIntermediateSplits(
+					splitsInput,
 					accumuloOperations,
-					query,
-					new QueryOptions(
-							adapter,
-							index,
-							-1,
-							null,
-							new String[] {
-								"aaa",
-								"bbb"
-							}),
+					indexAdapterPair.getLeft(),
+					indexAdapterPair.getValue(),
+					statsCache,
 					adapterStore,
 					statsStore,
-					indexStore,
-					adapterIndexMappingStore,
-					1,
-					5);
+					5,
+					query,
+					queryOptions.getAuthorizations());
+
 			verify(
 					tabletLocator).invalidateCache();
+			verify(tabletLocator).binRanges(isA(ClientContext.class), anyList(), anyMap());
+			
 			// verifyNoMoreInteractions(tabletLocator);
 			// if query is unsupported, return an empty split, with no error
-			// assertThat(
-			// splits.isEmpty(),
-			// is(true));
+			assertThat(
+					splitsOutput.isEmpty(),
+					is(false));
+			assertThat(
+					splitsOutput.size(),
+					is(9));
+			IntermediateSplitInfo splitTest;
+			int countTablet1 = 0;
+			int countTablet2 = 0;
+			
+			splitTest = splitsOutput.pollFirst();
+			//can't verify order of splits; I was getting different order depending on whether I ran or debugged
+			//instead, verify size of splits
+			while(splitTest != null) {
+				GeoWaveInputSplit finalSplitTest = splitTest.toFinalSplit();
+				if(finalSplitTest.getLocations()[0] == "tabletLocator1") {
+					countTablet1++;
+				}
+				else if(finalSplitTest.getLocations()[0] == "tabletLocator2"){
+					countTablet2++;
+				}
+				splitTest = splitsOutput.pollFirst();
+			}
+			
+			assertThat(countTablet1, is(4));
+			assertThat(countTablet2, is(5));
 		}
-		catch (IOException | InterruptedException e) {
-			// TODO Auto-generated catch block
+		catch (IOException e) {
+			e.printStackTrace();
+		} catch (AccumuloException e) {
+			e.printStackTrace();
+		} catch (AccumuloSecurityException e) {
+			e.printStackTrace();
+		} catch (TableNotFoundException e) {
 			e.printStackTrace();
 		}
 	}
-
+	
+	@Test
+	public void testWrapRange() {		
+		final ByteBuffer startRow = ByteBuffer.allocate(8);
+		startRow.put("aaaaaaaa".getBytes());
+		startRow.rewind();
+		final ByteBuffer endRow = ByteBuffer.allocate(8);
+		endRow.put("bbbbbbbb".getBytes());
+		endRow.rewind();
+		final ByteBuffer colFamily = ByteBuffer.allocate(8);
+		colFamily.put("testing".getBytes());
+		colFamily.rewind();
+		final ByteBuffer colQualifier = ByteBuffer.allocate(8);
+		colQualifier.put("testing".getBytes());
+		colQualifier.rewind();
+		final ByteBuffer colVisibility = ByteBuffer.allocate(8);
+		colVisibility.put("testing".getBytes());
+		colVisibility.rewind();
+		TRange tRange = new TRange(
+				new TKey(startRow, colFamily, colQualifier, colVisibility, new Date().getTime()), 
+				new TKey(endRow, colFamily, colQualifier, colVisibility, new Date().getTime()), true, false, false, false);
+		
+		Map<String, Range> rangesToTest = new HashMap<String, Range>();
+		rangesToTest.put("emptyRange", new Range());
+		
+		rangesToTest.put("charSequenceRange1", new Range("The quick fox jumps over the lazy dog"));
+		rangesToTest.put("textRange", new Range(new Text("The quick fox jumps over the lazy dog")));
+		rangesToTest.put("thriftRange", new Range(tRange));
+		rangesToTest.put("charSequenceRange2", new Range("The quick fox jumps over the lazy dog", "quick fox jumps over the lazy dog"));
+		rangesToTest.put("keyRange", new Range(new Key(new Text("alpha")), new Key(new Text("epsilon"))));
+		
+		for(String key : rangesToTest.keySet()) {
+			GeoWaveRowRange wrappedRange = AccumuloSplitsProvider.wrapRange(rangesToTest.get(key));
+			
+			String wrappedStartKey = wrappedRange.getStartKey() != null ? new String(wrappedRange.getStartKey()) : null;
+			String originalStartKey = rangesToTest.get(key).getStartKey() != null ? rangesToTest.get(key).getStartKey().getRow().toString() : null;
+			assertThat("StartKey test case failed: " + key, wrappedStartKey, is(originalStartKey));
+			
+			String wrappedEndKey = wrappedRange.getEndKey() != null ? new String(wrappedRange.getEndKey()) : null;
+			String originalEndKey = rangesToTest.get(key).getEndKey() != null ? rangesToTest.get(key).getEndKey().getRow().toString() : null;
+			assertThat("StartKey test case failed: " + key, wrappedEndKey, is(originalEndKey));
+		}
+	}
+	
 	protected static class TestGeometry
 	{
 		private final Geometry geom;
@@ -704,5 +1043,31 @@ public class AccumuloSplitsProviderTest
 				final String[] authorizations ) {
 			return this.rangeMax;
 		};
+
+		@Override
+		public TreeSet<IntermediateSplitInfo> populateIntermediateSplits(
+				final TreeSet<IntermediateSplitInfo> splits,
+				final DataStoreOperations operations,
+				final PrimaryIndex index,
+				final List<DataAdapter<Object>> adapters,
+				final Map<PrimaryIndex, RowRangeHistogramStatistics<?>> statsCache,
+				final AdapterStore adapterStore,
+				final DataStatisticsStore statsStore,
+				final Integer maxSplits,
+				final DistributableQuery query,
+				final String[] authorizations )
+				throws IOException {
+			return super.populateIntermediateSplits(
+					splits,
+					operations,
+					index,
+					adapters,
+					statsCache,
+					adapterStore,
+					statsStore,
+					maxSplits,
+					query,
+					authorizations);
+		}
 	}
 }
