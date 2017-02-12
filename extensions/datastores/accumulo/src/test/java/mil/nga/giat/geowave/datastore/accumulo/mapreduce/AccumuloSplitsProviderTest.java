@@ -637,8 +637,12 @@ public class AccumuloSplitsProviderTest
 
 			verify(
 					tabletLocator).invalidateCache();
-			verify(tabletLocator).binRanges(isA(ClientContext.class), anyList(), anyMap());
-			
+			verify(
+					tabletLocator).binRanges(
+					isA(ClientContext.class),
+					anyList(),
+					anyMap());
+
 			// verifyNoMoreInteractions(tabletLocator);
 			// if query is unsupported, return an empty split, with no error
 			assertThat(
@@ -650,37 +654,45 @@ public class AccumuloSplitsProviderTest
 			IntermediateSplitInfo splitTest;
 			int countTablet1 = 0;
 			int countTablet2 = 0;
-			
+
 			splitTest = splitsOutput.pollFirst();
-			//can't verify order of splits; I was getting different order depending on whether I ran or debugged
-			//instead, verify size of splits
-			while(splitTest != null) {
+			// can't verify order of splits; I was getting different order
+			// depending on whether I ran or debugged
+			// instead, verify size of splits
+			while (splitTest != null) {
 				GeoWaveInputSplit finalSplitTest = splitTest.toFinalSplit();
-				if(finalSplitTest.getLocations()[0] == "tabletLocator1") {
+				if (finalSplitTest.getLocations()[0] == "tabletLocator1") {
 					countTablet1++;
 				}
-				else if(finalSplitTest.getLocations()[0] == "tabletLocator2"){
+				else if (finalSplitTest.getLocations()[0] == "tabletLocator2") {
 					countTablet2++;
 				}
 				splitTest = splitsOutput.pollFirst();
 			}
-			
-			assertThat(countTablet1, is(4));
-			assertThat(countTablet2, is(5));
+
+			assertThat(
+					countTablet1,
+					is(4));
+			assertThat(
+					countTablet2,
+					is(5));
 		}
 		catch (IOException e) {
 			e.printStackTrace();
-		} catch (AccumuloException e) {
+		}
+		catch (AccumuloException e) {
 			e.printStackTrace();
-		} catch (AccumuloSecurityException e) {
+		}
+		catch (AccumuloSecurityException e) {
 			e.printStackTrace();
-		} catch (TableNotFoundException e) {
+		}
+		catch (TableNotFoundException e) {
 			e.printStackTrace();
 		}
 	}
-	
+
 	@Test
-	public void testWrapRange() {		
+	public void testWrapRange() {
 		final ByteBuffer startRow = ByteBuffer.allocate(8);
 		startRow.put("aaaaaaaa".getBytes());
 		startRow.rewind();
@@ -697,31 +709,158 @@ public class AccumuloSplitsProviderTest
 		colVisibility.put("testing".getBytes());
 		colVisibility.rewind();
 		TRange tRange = new TRange(
-				new TKey(startRow, colFamily, colQualifier, colVisibility, new Date().getTime()), 
-				new TKey(endRow, colFamily, colQualifier, colVisibility, new Date().getTime()), true, false, false, false);
-		
+				new TKey(
+						startRow,
+						colFamily,
+						colQualifier,
+						colVisibility,
+						new Date().getTime()),
+				new TKey(
+						endRow,
+						colFamily,
+						colQualifier,
+						colVisibility,
+						new Date().getTime()),
+				true,
+				false,
+				false,
+				false);
+
 		Map<String, Range> rangesToTest = new HashMap<String, Range>();
-		rangesToTest.put("emptyRange", new Range());
-		
-		rangesToTest.put("charSequenceRange1", new Range("The quick fox jumps over the lazy dog"));
-		rangesToTest.put("textRange", new Range(new Text("The quick fox jumps over the lazy dog")));
-		rangesToTest.put("thriftRange", new Range(tRange));
-		rangesToTest.put("charSequenceRange2", new Range("The quick fox jumps over the lazy dog", "quick fox jumps over the lazy dog"));
-		rangesToTest.put("keyRange", new Range(new Key(new Text("alpha")), new Key(new Text("epsilon"))));
-		
-		for(String key : rangesToTest.keySet()) {
+		rangesToTest.put(
+				"emptyRange",
+				new Range());
+
+		rangesToTest.put(
+				"charSequenceRange1",
+				new Range(
+						"The quick fox jumps over the lazy dog"));
+		rangesToTest.put(
+				"textRange",
+				new Range(
+						new Text(
+								"The quick fox jumps over the lazy dog")));
+		rangesToTest.put(
+				"thriftRange",
+				new Range(
+						tRange));
+		rangesToTest.put(
+				"charSequenceRange2",
+				new Range(
+						"The quick fox jumps over the lazy dog",
+						"quick fox jumps over the lazy dog"));
+		rangesToTest.put(
+				"keyRange",
+				new Range(
+						new Key(
+								new Text(
+										"alpha")),
+						new Key(
+								new Text(
+										"epsilon"))));
+
+		for (String key : rangesToTest.keySet()) {
 			GeoWaveRowRange wrappedRange = AccumuloSplitsProvider.wrapRange(rangesToTest.get(key));
-			
-			String wrappedStartKey = wrappedRange.getStartKey() != null ? new String(wrappedRange.getStartKey()) : null;
-			String originalStartKey = rangesToTest.get(key).getStartKey() != null ? rangesToTest.get(key).getStartKey().getRow().toString() : null;
-			assertThat("StartKey test case failed: " + key, wrappedStartKey, is(originalStartKey));
-			
-			String wrappedEndKey = wrappedRange.getEndKey() != null ? new String(wrappedRange.getEndKey()) : null;
-			String originalEndKey = rangesToTest.get(key).getEndKey() != null ? rangesToTest.get(key).getEndKey().getRow().toString() : null;
-			assertThat("StartKey test case failed: " + key, wrappedEndKey, is(originalEndKey));
+
+			String wrappedStartKey = wrappedRange.getStartKey() != null ? new String(
+					wrappedRange.getStartKey()) : null;
+			String originalStartKey = rangesToTest.get(
+					key).getStartKey() != null ? rangesToTest.get(
+					key).getStartKey().getRow().toString() : null;
+			assertThat(
+					"StartKey test case failed: " + key,
+					wrappedStartKey,
+					is(originalStartKey));
+
+			String wrappedEndKey = wrappedRange.getEndKey() != null ? new String(
+					wrappedRange.getEndKey()) : null;
+			String originalEndKey = rangesToTest.get(
+					key).getEndKey() != null ? rangesToTest.get(
+					key).getEndKey().getRow().toString() : null;
+			assertThat(
+					"StartKey test case failed: " + key,
+					wrappedEndKey,
+					is(originalEndKey));
 		}
 	}
-	
+
+	@Test
+	public void testUnwrapRanges() {
+		final ByteBuffer startRow = ByteBuffer.allocate(8);
+		startRow.put("aaaaaaaa".getBytes());
+		startRow.rewind();
+		final ByteBuffer endRow = ByteBuffer.allocate(8);
+		endRow.put("bbbbbbbb".getBytes());
+		endRow.rewind();
+		final ByteBuffer colFamily = ByteBuffer.allocate(8);
+		colFamily.put("testing".getBytes());
+		colFamily.rewind();
+		final ByteBuffer colQualifier = ByteBuffer.allocate(8);
+		colQualifier.put("testing".getBytes());
+		colQualifier.rewind();
+		final ByteBuffer colVisibility = ByteBuffer.allocate(8);
+		colVisibility.put("testing".getBytes());
+		colVisibility.rewind();
+		TRange tRange = new TRange(
+				new TKey(
+						startRow,
+						colFamily,
+						colQualifier,
+						colVisibility,
+						new Date().getTime()),
+				new TKey(
+						endRow,
+						colFamily,
+						colQualifier,
+						colVisibility,
+						new Date().getTime()),
+				true,
+				false,
+				false,
+				false);
+
+		Map<String, Range> rangesToTest = new HashMap<String, Range>();
+		rangesToTest.put(
+				"emptyRange",
+				new Range());
+
+		rangesToTest.put(
+				"charSequenceRange1",
+				new Range(
+						"The quick fox jumps over the lazy dog"));
+		rangesToTest.put(
+				"textRange",
+				new Range(
+						new Text(
+								"The quick fox jumps over the lazy dog")));
+		rangesToTest.put(
+				"thriftRange",
+				new Range(
+						tRange));
+		rangesToTest.put(
+				"charSequenceRange2",
+				new Range(
+						"The quick fox jumps over the lazy dog",
+						"quick fox jumps over the lazy dog"));
+		rangesToTest.put(
+				"keyRange",
+				new Range(
+						new Key(
+								new Text(
+										"alpha")),
+						new Key(
+								new Text(
+										"epsilon"))));
+
+		// easiest way to test unwrap is by verifying an unwrapped wrap is equal
+		// to itself
+		for (String key : rangesToTest.keySet()) {
+			assertThat(
+					rangesToTest.get(key),
+					is(AccumuloSplitsProvider.unwrapRange(AccumuloSplitsProvider.wrapRange(rangesToTest.get(key)))));
+		}
+	}
+
 	protected static class TestGeometry
 	{
 		private final Geometry geom;
