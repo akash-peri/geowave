@@ -224,6 +224,9 @@ public class AccumuloSplitsProviderTest
 					5);
 			verify(
 					tabletLocator).invalidateCache();
+			assertThat(
+					splits.isEmpty(),
+					is(true));
 		}
 		catch (IOException | InterruptedException e) {
 			e.printStackTrace();
