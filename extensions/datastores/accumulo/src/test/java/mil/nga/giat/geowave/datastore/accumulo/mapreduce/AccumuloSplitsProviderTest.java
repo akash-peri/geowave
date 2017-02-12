@@ -293,7 +293,6 @@ public class AccumuloSplitsProviderTest
 			// no need to verify mock here, no actions taken on it
 		}
 		catch (IOException | InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -342,7 +341,6 @@ public class AccumuloSplitsProviderTest
 			// no need to verify mock here, no actions taken on it
 		}
 		catch (IOException | InterruptedException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -371,7 +369,6 @@ public class AccumuloSplitsProviderTest
 							new ArrayList<Range>());
 				}
 				catch (AccumuloException | AccumuloSecurityException | TableNotFoundException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 			}
@@ -391,8 +388,6 @@ public class AccumuloSplitsProviderTest
 			public Map<String, Map<KeyExtent, List<Range>>> getBinnedRangesStructure() {
 
 				final Map<String, Map<KeyExtent, List<Range>>> tserverBinnedRanges = new HashMap<String, Map<KeyExtent, List<Range>>>();
-				Map<KeyExtent, List<Range>> keyExtents = new HashMap<KeyExtent, List<Range>>();
-				List<Range> ranges = new ArrayList<Range>();
 
 				// first tablet locator
 				tserverBinnedRanges.put(
@@ -591,17 +586,6 @@ public class AccumuloSplitsProviderTest
 			}
 		};
 		try {
-			// having trouble getting the statsStore to correctly return the
-			// ingested info
-			// this is because it can't find the table...
-			// for now, try mocking out that specific action
-			/*
-			 * final DataStatistics<?> stat = new CountDataStatistics<String>(
-			 * new ByteArrayId( "blah")); stat.entryIngested( null, null);
-			 * stat.entryIngested( null, null); stat.entryIngested( null, null);
-			 * statsStore.incorporateStatistics(stat);
-			 */
-
 			QueryOptions queryOptions = new QueryOptions(
 					adapter,
 					index,
@@ -643,7 +627,6 @@ public class AccumuloSplitsProviderTest
 					anyList(),
 					anyMap());
 
-			// verifyNoMoreInteractions(tabletLocator);
 			// if query is unsupported, return an empty split, with no error
 			assertThat(
 					splitsOutput.isEmpty(),
