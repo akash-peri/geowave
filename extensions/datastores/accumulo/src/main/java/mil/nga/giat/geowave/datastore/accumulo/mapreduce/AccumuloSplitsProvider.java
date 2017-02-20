@@ -57,6 +57,7 @@ import org.apache.accumulo.core.data.impl.KeyExtent;
 /*end[accumulo.api=1.6]*/
 //@formatter:on
 
+
 public class AccumuloSplitsProvider extends
 		SplitsProvider
 {
